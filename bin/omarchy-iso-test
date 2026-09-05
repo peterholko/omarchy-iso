@@ -39,6 +39,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 source "$REPO_DIR/test/console-ocr.sh"
+source "$REPO_DIR/test/boot-console.sh"
 
 ISO=""
 SSH_PORT=2222
@@ -918,45 +919,38 @@ wait_for_install() {
   done
 }
 
-# Encrypted boots stop at the LUKS passphrase prompt. Plymouth's prompt isn't
-# reliably OCR-able, so type the passphrase on an interval until a console
-# login becomes reachable; early keystrokes are harmlessly discarded.
+# Wait for the actual prompt: a blank screen during reboot is not an unlock.
 unlock_luks() {
-  log "Typing the LUKS passphrase until boot proceeds"
-
-  local waited=0
+  local deadline=$((SECONDS + 600)) clear_samples=0
   sleep 10
-  capture_console "success-first-boot-01-luks-prompt"
+  enter_luks_password first-boot
+  sleep 20
 
   while true; do
-    type_text "$GUEST_LOGIN_PASSWORD"
-    if ((waited == 0)); then
-      capture_console "success-first-boot-02-luks-passphrase"
-    fi
-    press ret
-    sleep 20
-    ((waited += 30))
-
     if $CHILD; then
-      # Child installs close the text consoles, so the sign that the disk
-      # opened is the passphrase prompt leaving the screen.
-      if ! ocr_screen | grep -qi "passphrase"; then
+      # Only look for the prompt clearing after it was seen and answered.
+      if console_is_luks_prompt "$(ocr_screen)"; then
+        clear_samples=0
+      else
+        ((clear_samples += 1))
+        if ((clear_samples >= 3)); then
+          return 0
+        fi
+      fi
+    else
+      press ctrl-alt-f3
+      sleep 3
+      if ocr_screen | grep -qi "login:"; then
         return 0
       fi
-      continue
     fi
 
-    press ctrl-alt-f3
-    sleep 3
-    if ocr_screen | grep -qi "login:"; then
-      return 0
-    fi
-
-    if ((waited >= 300)); then
+    if ! vm_running || ((SECONDS >= deadline)); then
       capture_console "failure-first-boot-luks-timeout"
       echo "Timed out waiting for LUKS unlock" >&2
       return 1
     fi
+    sleep 5
   done
 }
 
@@ -1078,24 +1072,9 @@ EOF
 # LUKS prompt and/or SDDM greeter exactly like a user would.
 establish_session() {
   if $ENCRYPT; then
-    local waited=0
     sleep 10
-    capture_console "success-session-01-luks-prompt"
-    until ssh_guest true 2>/dev/null; do
-      type_text "$GUEST_LOGIN_PASSWORD"
-      if ((waited == 0)); then
-        capture_console "success-session-02-luks-passphrase"
-      fi
-      press ret
-      sleep 15
-      ((waited += 16))
-
-      if ((waited >= BOOT_TIMEOUT)); then
-        capture_console "failure-session-luks-timeout"
-        echo "Timed out unlocking LUKS" >&2
-        return 1
-      fi
-    done
+    enter_luks_password session "$BOOT_TIMEOUT"
+    wait_for_ssh "$BOOT_TIMEOUT" "failure-session-luks-timeout"
     # Encrypted installs autologin once the disk is unlocked
   else
     wait_for_ssh "$BOOT_TIMEOUT" "failure-session-ssh-timeout"
