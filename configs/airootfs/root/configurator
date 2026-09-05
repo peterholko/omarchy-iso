@@ -216,7 +216,14 @@ computer_for_form() {
     say "Let's setup your machine..."
     echo
 
-    omarchy_prompt_computer_for && status=0 || status=$?
+    if [[ -f /usr/share/omarchy-iso/kids-release.json ]]; then
+      # The dedicated Kids image always creates a child profile. Keep the
+      # shared account/password form used by ordinary child installations.
+      gum choose --header "Who is this computer for?" "Child" >/dev/null && status=0 || status=$?
+      computer_for=child
+    else
+      omarchy_prompt_computer_for && status=0 || status=$?
+    fi
     ((status == 0)) && break
 
     # Esc means "back", and nothing precedes the first screen, so re-ask.

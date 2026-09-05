@@ -68,6 +68,8 @@ class InstallContext:
         profile = str(omarchy_install.get("profile") or "default")
         if profile not in PROFILES:
             raise RuntimeError(f"omarchy_install.profile must be one of {sorted(PROFILES)}, not {profile!r}")
+        if Path('/usr/share/omarchy-iso/kids-release.json').exists() and profile != 'child':
+            raise RuntimeError('the Omarchy Kids ISO requires the child profile')
         omarchy_install["profile"] = profile
 
         if creds_path.exists():

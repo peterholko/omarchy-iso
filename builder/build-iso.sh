@@ -11,6 +11,10 @@ OMARCHY_MIRROR="${OMARCHY_MIRROR:-stable}"
 # the offline mirror and target install. Every other ref, the default quattro
 # build included, installs the published omarchy packages.
 case "$OMARCHY_ISO_REF" in
+  kids)
+    OMARCHY_RUNTIME_PACKAGE=omarchy-kids-base
+    OMARCHY_SETTINGS_PACKAGE=omarchy-kids-settings
+    ;;
   edge|dev|local)
     : "${OMARCHY_RUNTIME_PACKAGE:=omarchy-dev}"
     : "${OMARCHY_SETTINGS_PACKAGE:=omarchy-settings-dev}"
@@ -30,7 +34,7 @@ pacman --noconfirm -Sy archlinux-keyring
 # so this container can be months behind the mirror it installs from. A plain
 # -Sy install is then a partial upgrade — new packages linked against a glibc
 # the container doesn't have yet.
-pacman --noconfirm -Syu archiso git sudo base-devel jq grub imagemagick neovim nodejs npm tree-sitter-cli
+pacman --noconfirm -Syu archiso git python sudo base-devel jq grub imagemagick neovim nodejs npm tree-sitter-cli
 
 # Pre-import the omarchy signing key (so pacman trusts our [omarchy] repo
 # during the build without keyserver lookups).
@@ -99,8 +103,19 @@ fi
 # When --local-source is in effect, build omarchy* from the mounted source
 # trees and drop them in the offline mirror. Otherwise pacman -Syw below
 # downloads the published versions from the omarchy network mirror.
-if [[ -d /omarchy-source && -d /omarchy-pkgs ]]; then
+local_package_names=()
+if [[ $OMARCHY_ISO_REF == "kids" ]]; then
+  python /builder/stage-kids-packages.py /kids-packages "$offline_mirror_dir" "$build_cache_dir/airootfs/usr/share/omarchy-iso"
+  mapfile -t local_package_names < <(jq -r '.packages | keys[]' /kids-packages/release.json)
+  LOCAL_OMARCHY_BUILD=1
+  # Identify the fork and source revision in the filename, without implying
+  # this preview image is a release published by upstream Omarchy.
+  kids_revision=$(jq -r '.source[:12]' /kids-packages/release.json)
+  sed -i 's/^iso_name=.*/iso_name="omarchy-kids"/; s|^iso_publisher=.*|iso_publisher="Omarchy Kids <https://github.com/peterholko/omarchy-kids>"|; s/^iso_application=.*/iso_application="Omarchy Kids Installer"/' "$build_cache_dir/profiledef.sh"
+  sed -i "s/^iso_version=.*/iso_version=\"$(date +%Y.%m.%d)-$kids_revision\"/" "$build_cache_dir/profiledef.sh"
+elif [[ -d /omarchy-source && -d /omarchy-pkgs ]]; then
   bash /builder/build-omarchy-packages.sh "$offline_mirror_dir"
+  local_package_names=("$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" "$OMARCHY_NVIM_PACKAGE")
   LOCAL_OMARCHY_BUILD=1
 fi
 
@@ -138,7 +153,12 @@ sed -i -E '/^(linux|broadcom-wl)$/d' "$build_cache_dir/packages.x86_64"
 # install. With --local-source, the omarchy* packages we just built are
 # already in the mirror and we filter them out below. Without it, pacman -Syw
 # pulls the published omarchy* from the network mirror like any other package.
-if [[ -d /omarchy-source ]]; then
+if [[ $OMARCHY_ISO_REF == "kids" ]]; then
+  kids_install="$build_cache_dir/airootfs/usr/share/omarchy-iso/kids-runtime/usr/share/omarchy/install"
+  base_pkg_lists=("$kids_install/omarchy-base.packages" "$kids_install/omarchy-other.packages")
+  child_pkg_list="$kids_install/omarchy-child.packages"
+  setup_form="$kids_install/provisioning/setup-form.sh"
+elif [[ -d /omarchy-source ]]; then
   base_pkg_lists=(/omarchy-source/install/omarchy-base.packages /omarchy-source/install/omarchy-other.packages)
   child_pkg_list=/omarchy-source/install/omarchy-child.packages
   setup_form=/omarchy-source/install/provisioning/setup-form.sh
@@ -222,13 +242,16 @@ mapfile -t all_packages < <(
 # the mirror; strip them from the pacman -Syw list so it doesn't try to fetch
 # the published versions on top.
 if [[ -n ${LOCAL_OMARCHY_BUILD:-} ]]; then
-  mapfile -t all_packages < <(
-    printf '%s\n' "${all_packages[@]}" |
-      grep -Fxv \
-        -e "$OMARCHY_RUNTIME_PACKAGE" \
-        -e "$OMARCHY_SETTINGS_PACKAGE" \
-        -e "$OMARCHY_NVIM_PACKAGE" || true
-  )
+  mapfile -t all_packages < <(printf '%s\n' "${all_packages[@]}" |
+    grep -Fxv -f <(printf '%s\n' "${local_package_names[@]}") || true)
+  # Local package dependencies are not visible to the online resolver. Add
+  # their external dependencies explicitly (including optional modules).
+  if [[ $OMARCHY_ISO_REF == "kids" ]]; then
+    mapfile -t kids_dependencies < <(while IFS= read -r file; do
+      bsdtar -xOf "/kids-packages/$file" .PKGINFO | sed -n 's/^depend = //p'
+    done < <(jq -r '.packages[].file' /kids-packages/release.json) | grep -v '^omarchy-kids-' | sort -u)
+    all_packages+=("${kids_dependencies[@]}")
+  fi
 fi
 
 mkdir -p /tmp/offlinedb
@@ -263,8 +286,7 @@ mapfile -t required_package_files <<< "$resolved_package_files"
 # checkouts. Add those exact artifacts back to the keep-set after verifying
 # that the local build left exactly one file for each selected package name.
 if [[ -n ${LOCAL_OMARCHY_BUILD:-} ]]; then
-  for local_package_name in \
-    "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" "$OMARCHY_NVIM_PACKAGE"; do
+  for local_package_name in "${local_package_names[@]}"; do
     local_package_file=""
     for candidate in "$offline_mirror_dir/$local_package_name-"*.pkg.tar.*; do
       [[ -f $candidate && $candidate != *.sig ]] || continue
@@ -322,6 +344,9 @@ resolve_expected_packages() {
       # install time, not the build-time source it came from.
       grep -hv '^#\|^$' \
         "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-base.packages"
+      if [[ $OMARCHY_ISO_REF == "kids" ]]; then
+        grep -hv '^#\|^$' "$build_cache_dir/airootfs/usr/share/omarchy-iso/omarchy-child.packages"
+      fi
       printf '%s\n' "$OMARCHY_RUNTIME_PACKAGE" "$OMARCHY_SETTINGS_PACKAGE" \
         "$OMARCHY_NVIM_PACKAGE"
     } | sort -u

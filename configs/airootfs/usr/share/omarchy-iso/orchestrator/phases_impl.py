@@ -1243,6 +1243,7 @@ NODE_PACKAGES_DIR = Path("/opt/packages")
 
 
 def stage_provisioning_state(ctx: InstallContext) -> None:
+    _stage_kids_packages(ctx)
     # World-readable: first-boot finalization reads the Node tarball as the
     # new user. The only secret inside (luks-key) is itself 0600 root.
     provisioning_dir = ctx.target / PROVISION_STATE_DIR
@@ -1277,6 +1278,28 @@ def stage_provisioning_state(ctx: InstallContext) -> None:
 
     if _provision_install_encrypted(ctx):
         _stage_provisioning_luks_unlock(ctx, provisioning_dir)
+
+
+def _stage_kids_packages(ctx: InstallContext, mirror=Path('/var/cache/omarchy/mirror/offline')) -> None:
+    manifest = ISO_SHARE / 'kids-release.json'
+    if not manifest.exists():
+        return
+    import hashlib
+    import json
+    release = json.loads(manifest.read_text())
+    cache = ctx.target / 'var/cache/omarchy-kids/packages'
+    cache.mkdir(parents=True, mode=0o755, exist_ok=True)
+    for entry in release['packages'].values():
+        filename = entry['file']
+        if Path(filename).name != filename:
+            raise RuntimeError('invalid Kids package filename')
+        source = mirror / filename
+        if hashlib.sha256(source.read_bytes()).hexdigest() != entry['sha256']:
+            raise RuntimeError('Kids package checksum mismatch: ' + filename)
+        shutil.copyfile(source, cache / filename)
+        (cache / filename).chmod(0o644)
+    shutil.copyfile(manifest, cache / 'release.json')
+    (cache / 'release.json').chmod(0o644)
 
 
 def _stage_node_tarball(ctx: InstallContext, provisioning_dir) -> None:

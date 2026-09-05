@@ -119,7 +119,9 @@ if [[ ! -f ${ISO:-} ]]; then
   exit 1
 fi
 
-omarchy-pkg-add qemu-full edk2-ovmf socat imagemagick tesseract tesseract-data-eng
+if [[ ${OMARCHY_ISO_TEST_DEPS_READY:-} != "1" ]]; then
+  omarchy-pkg-add qemu-full edk2-ovmf socat imagemagick tesseract tesseract-data-eng
+fi
 
 OVMF_CODE="/usr/share/edk2/x64/OVMF_CODE.4m.fd"
 OVMF_VARS_TEMPLATE="/usr/share/edk2/x64/OVMF_VARS.4m.fd"
