@@ -45,22 +45,24 @@ class KidsPackagesTest(unittest.TestCase):
 
     def test_exact_release_is_bundled_and_cached_on_target(self):
         extract = self.build()
-        self.assertEqual(len(list(self.mirror.glob('*.pkg.tar.zst'))), 7)
+        self.assertEqual(len(list(self.mirror.glob('*.pkg.tar.zst'))), len(stage.NAMES))
         self.assertIn(str(self.source / 'omarchy-kids-base.pkg.tar.zst'), extract.call_args.args[0])
         ctx = types.SimpleNamespace(target=self.path / 'target')
         with patch.object(phases_impl, 'ISO_SHARE', self.share):
             phases_impl._stage_kids_packages(ctx, self.mirror)
         cache = ctx.target / 'var/cache/omarchy-kids/packages'
         self.assertEqual(json.loads((cache / 'release.json').read_text()), self.release)
-        self.assertEqual(len(list(cache.glob('*.pkg.tar.zst'))), 7)
+        self.assertEqual(len(list(cache.glob('*.pkg.tar.zst'))), len(stage.NAMES))
         self.assertTrue(all(file.stat().st_mode & 0o022 == 0 for file in cache.iterdir()))
 
     def test_missing_changed_and_mixed_packages_fail_before_staging(self):
-        for mutation in ('missing', 'checksum', 'identity', 'revision', 'dirty', 'source', 'architecture'):
+        for mutation in ('missing', 'checksum', 'identity', 'revision', 'dirty', 'source', 'architecture', 'grove'):
             with self.subTest(mutation=mutation):
                 original = json.loads(json.dumps(self.release))
                 if mutation == 'missing':
                     del self.packages['omarchy-kids-school']
+                elif mutation == 'grove':
+                    del self.packages['omarchy-kids-grove']
                 elif mutation == 'dirty':
                     self.release['dirty'] = True
                 elif mutation == 'source':

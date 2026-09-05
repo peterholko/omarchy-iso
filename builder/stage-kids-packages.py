@@ -8,14 +8,14 @@ import sys
 from pathlib import Path
 
 NAMES = {'omarchy-kids-base', 'omarchy-kids-settings'} | {
-    'omarchy-kids-' + name for name in ('core', 'dns', 'browsing', 'time', 'school')}
+    'omarchy-kids-' + name for name in ('core', 'dns', 'browsing', 'time', 'school', 'grove')}
 
 
 def stage(source, mirror, share):
     release = json.loads((source / 'release.json').read_text())
     if (set(release['packages']) != NAMES or release.get('dirty') or
             not re.fullmatch('[0-9a-f]{40}', release.get('source', ''))):
-        raise ValueError('build the seven Kids packages from a clean, committed checkout first')
+        raise ValueError('build the eight Kids packages from a clean, committed checkout first')
     archives = {}
     for name, info in release['packages'].items():
         filename = info['file']
@@ -35,7 +35,7 @@ def stage(source, mirror, share):
     versions = {name: info['pkgver'] for name, info in release['packages'].items()}
     if (versions['omarchy-kids-base'] != versions['omarchy-kids-settings'] or
             len({version.rsplit('-', 1)[-1] for version in versions.values()}) != 1 or
-            len({versions['omarchy-kids-' + name] for name in ('core', 'dns', 'browsing', 'time', 'school')}) != 1):
+            len({versions['omarchy-kids-' + name] for name in ('core', 'dns', 'browsing', 'time', 'school', 'grove')}) != 1):
         raise ValueError('mixed Kids package revisions')
     mirror.mkdir(parents=True, exist_ok=True)
     share.mkdir(parents=True, exist_ok=True)
