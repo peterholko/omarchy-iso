@@ -9,6 +9,7 @@
 set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+source "$ROOT/test/console-ocr.sh"
 
 ISO="$OMARCHY_INTEGRATION_ISO"
 SSH_PORT="${OMARCHY_INTEGRATION_SSH_PORT:-2322}"
@@ -197,8 +198,7 @@ ocr_screen() {
 
   screendump "$shot"
   [[ -s $shot ]] || return 0
-  magick "$shot" -colorspace gray -negate -resize 150% "$prepped" 2>/dev/null || return 0
-  tesseract "$prepped" - --psm 6 2>/dev/null || true
+  console_ocr "$shot" "$prepped"
 }
 
 wait_for_screen() {

@@ -38,6 +38,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
+source "$REPO_DIR/test/console-ocr.sh"
 
 ISO=""
 SSH_PORT=2222
@@ -276,8 +277,7 @@ ocr_screen() {
 
   screendump "$shot"
   [[ -s $shot ]] || return 0
-  magick "$shot" -colorspace gray -negate -resize 150% "$prepped" 2>/dev/null || return 0
-  tesseract "$prepped" - --psm 6 2>/dev/null || true
+  console_ocr "$shot" "$prepped"
 }
 
 # Wait until the console shows the given text. Saves the offending screen as
@@ -296,6 +296,7 @@ wait_for_screen() {
       slug=${slug// /-}
       slug=${slug//[^a-z0-9-]/}
       capture_console "failure-installer-waiting-for-$slug"
+      ocr_screen >"$RUN_DIR/failure-installer-waiting-for-$slug.txt"
       echo "Timed out after ${timeout}s waiting for screen: $text" >&2
       return 1
     fi
