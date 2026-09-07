@@ -56,7 +56,7 @@ class KidsPackagesTest(unittest.TestCase):
         self.assertTrue(all(file.stat().st_mode & 0o022 == 0 for file in cache.iterdir()))
 
     def test_missing_changed_and_mixed_packages_fail_before_staging(self):
-        for mutation in ('missing', 'checksum', 'identity', 'revision', 'dirty', 'source', 'architecture', 'grove', 'typing'):
+        for mutation in ('missing', 'checksum', 'identity', 'revision', 'dirty', 'source', 'architecture', 'grove', 'typing', 'pawberry'):
             with self.subTest(mutation=mutation):
                 original = json.loads(json.dumps(self.release))
                 if mutation == 'missing':
@@ -65,6 +65,8 @@ class KidsPackagesTest(unittest.TestCase):
                     del self.packages['omarchy-kids-grove']
                 elif mutation == 'typing':
                     del self.packages['omarchy-kids-typing']
+                elif mutation == 'pawberry':
+                    del self.packages['omarchy-kids-pawberry']
                 elif mutation == 'dirty':
                     self.release['dirty'] = True
                 elif mutation == 'source':
